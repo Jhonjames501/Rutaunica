@@ -1,0 +1,1448 @@
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RUTAÚNICA — Todos tus pedidos, un solo mapa</title>
+
+  <!-- Fuente Inter para máxima legibilidad -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            brandBlue: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+            },
+            brandGreen: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              600: '#16a34a',
+              700: '#15803d',
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Leaflet CSS para mapas reales de OpenStreetMap -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    html, body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: #f0f9ff;
+      color: #0f172a;
+      overflow-x: hidden;
+    }
+
+    /* Contenedor del mapa interactivo */
+    #rutaunica-map {
+      width: 100%;
+      height: 430px;
+      z-index: 10;
+      border-radius: 1rem;
+    }
+
+    @media (min-width: 1024px) {
+      #rutaunica-map {
+        height: 540px;
+      }
+    }
+
+    /* Marcadores numerados personalizados en el mapa */
+    .rider-number-pin {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 9999px;
+      background: #0284c7;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 14px;
+      border: 3px solid #ffffff;
+      box-shadow: 0 6px 14px rgba(2, 132, 199, 0.45);
+      transform: translate(-17px, -17px);
+    }
+
+    .rider-number-pin.next-stop {
+      background: #16a34a;
+      box-shadow: 0 6px 16px rgba(22, 163, 74, 0.55);
+      transform: translate(-19px, -19px) scale(1.1);
+      width: 38px;
+      height: 38px;
+      font-size: 15px;
+    }
+
+    .gps-rider-pin {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 9999px;
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 15px;
+      border: 3px solid #22c55e;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.4);
+      transform: translate(-18px, -18px);
+    }
+
+    .leaflet-popup-content-wrapper {
+      border-radius: 14px;
+      padding: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-gradient-to-b from-sky-50 via-white to-emerald-50/40">
+
+  <!-- Barra de avisos / notificaciones en pantalla (sin usar alert()) -->
+  <div id="toast-banner" class="fixed bottom-4 right-4 z-50 max-w-sm w-[calc(100%-2rem)] hidden">
+    <div id="toast-inner" class="rounded-2xl px-4 py-3.5 shadow-xl border text-sm font-semibold flex items-center justify-between gap-3 bg-slate-900 text-white border-slate-700">
+      <span id="toast-message">Listo</span>
+      <button type="button" onclick="hideToast()" class="text-white/80 hover:text-white font-bold px-2 py-1 rounded-lg">✕</button>
+    </div>
+  </div>
+
+  <!-- Encabezado principal -->
+  <header class="bg-white border-b border-sky-100 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <!-- Marca y eslogan -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-brandBlue-600 text-white flex items-center justify-center text-2xl shadow-md shadow-sky-200 shrink-0" aria-hidden="true">
+            🛵
+          </div>
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-brandBlue-800">
+                RUTAÚNICA
+              </h1>
+              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700 border border-emerald-200">
+                EN VIVO
+              </span>
+            </div>
+            <p class="text-xs sm:text-sm font-medium text-slate-600">
+              Todos tus pedidos, un solo mapa.
+            </p>
+          </div>
+        </div>
+
+        <!-- Botón rápido de ejemplo en móvil -->
+        <button
+          type="button"
+          onclick="loadSampleOrders()"
+          class="lg:hidden text-xs font-bold px-3 py-2 rounded-xl bg-sky-100 text-brandBlue-700 hover:bg-sky-200 active:scale-95 transition"
+        >
+          + Ejemplo Lima
+        </button>
+      </div>
+
+      <!-- Pestañas principales de navegación -->
+      <nav aria-label="Paneles principales" class="grid grid-cols-2 gap-2 bg-sky-50 p-1.5 rounded-2xl border border-sky-100 w-full lg:w-auto">
+        <button
+          id="tab-business"
+          type="button"
+          onclick="switchView('business')"
+          class="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition bg-brandBlue-600 text-white shadow-sm"
+        >
+          <span>🏪</span>
+          <span>Panel del Negocio</span>
+        </button>
+        <button
+          id="tab-rider"
+          type="button"
+          onclick="switchView('rider')"
+          class="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition text-brandBlue-800 hover:bg-white"
+        >
+          <span>🛵</span>
+          <span>Panel del Deliverista</span>
+          <span id="rider-badge-count" class="ml-1 px-2 py-0.5 text-xs font-extrabold rounded-full bg-emerald-600 text-white">0</span>
+        </button>
+      </nav>
+
+      <!-- Acciones rápidas de escritorio -->
+      <div class="hidden lg:flex items-center gap-2">
+        <button
+          type="button"
+          onclick="loadSampleOrders()"
+          class="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-sky-50 text-brandBlue-700 border border-sky-200 hover:bg-sky-100 active:scale-95 transition"
+        >
+          Cargar ejemplo (Lima)
+        </button>
+        <button
+          type="button"
+          onclick="openGuideModal()"
+          class="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 active:scale-95 transition"
+        >
+          Cómo usar / Nota
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contenido principal -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-6">
+
+    <!-- Resumen rápido de estado -->
+    <section aria-label="Resumen de pedidos" class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div class="bg-white rounded-2xl p-4 border border-sky-100 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Por entregar</p>
+          <p id="stat-pending" class="text-2xl sm:text-3xl font-extrabold text-brandBlue-700 mt-0.5">0</p>
+        </div>
+        <div class="w-11 h-11 rounded-xl bg-sky-100 text-brandBlue-700 flex items-center justify-center text-xl">📍</div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Entregados hoy</p>
+          <p id="stat-delivered" class="text-2xl sm:text-3xl font-extrabold text-brandGreen-700 mt-0.5">0</p>
+        </div>
+        <div class="w-11 h-11 rounded-xl bg-emerald-100 text-brandGreen-700 flex items-center justify-center text-xl">✅</div>
+      </div>
+
+      <div class="col-span-2 sm:col-span-1 bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">GPS del repartidor</p>
+          <p id="stat-gps" class="text-sm sm:text-base font-bold text-slate-700 mt-1">Sin activar</p>
+        </div>
+        <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center text-xl">🛰️</div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- A. PANEL DEL NEGOCIO                                                  -->
+    <!-- ===================================================================== -->
+    <section id="panel-business" aria-label="Panel del Negocio" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- Formulario sencillo para registrar pedidos -->
+      <div class="lg:col-span-5 bg-white rounded-3xl p-5 sm:p-6 border border-sky-100 shadow-sm">
+        <div class="mb-5">
+          <span class="inline-block text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-sky-100 text-brandBlue-700 mb-2">
+            Panel del Negocio
+          </span>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900">Nuevo pedido</h2>
+          <p class="text-sm text-slate-600 mt-1">
+            Ingresa los datos del cliente y envíalo directo al mapa del deliverista.
+          </p>
+        </div>
+
+        <form id="order-form" onsubmit="handleCreateOrder(event)" class="space-y-4">
+          <!-- 1. Nombre del cliente -->
+          <div>
+            <label for="customer-name" class="block text-sm font-bold text-slate-800 mb-1.5">
+              Nombre del cliente
+            </label>
+            <input
+              id="customer-name"
+              type="text"
+              required
+              placeholder="Ej. María Quispe"
+              class="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brandBlue-600 focus:outline-none text-base font-medium bg-slate-50 focus:bg-white transition"
+            />
+          </div>
+
+          <!-- 2. Dirección real -->
+          <div>
+            <label for="customer-address" class="block text-sm font-bold text-slate-800 mb-1.5">
+              Dirección de entrega
+            </label>
+            <input
+              id="customer-address"
+              type="text"
+              required
+              placeholder="Ej. Av. Tupac Amaru 4500, Carabayllo, Lima"
+              class="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brandBlue-600 focus:outline-none text-base font-medium bg-slate-50 focus:bg-white transition"
+            />
+            <p class="text-xs text-slate-500 mt-1.5">
+              Se ubica automáticamente en el mapa real con OpenStreetMap.
+            </p>
+          </div>
+
+          <!-- 3. Teléfono -->
+          <div>
+            <label for="customer-phone" class="block text-sm font-bold text-slate-800 mb-1.5">
+              Número de teléfono
+            </label>
+            <input
+              id="customer-phone"
+              type="tel"
+              required
+              placeholder="Ej. 987 654 321"
+              class="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-brandBlue-600 focus:outline-none text-base font-medium bg-slate-50 focus:bg-white transition"
+            />
+          </div>
+
+          <!-- Botón grande para enviar al deliverista -->
+          <button
+            id="submit-order-btn"
+            type="submit"
+            class="w-full py-4 px-5 rounded-2xl bg-brandBlue-600 hover:bg-brandBlue-700 active:scale-[0.99] text-white font-extrabold text-base sm:text-lg shadow-lg shadow-sky-200 transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>🚀</span>
+            <span>Enviar pedido al deliverista</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Lista de pedidos del negocio -->
+      <div class="lg:col-span-7 bg-white rounded-3xl p-5 sm:p-6 border border-sky-100 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900">Pedidos del día</h2>
+            <p class="text-sm text-slate-600">Revisa qué pedidos están en ruta y cuáles ya fueron entregados.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="switchView('rider')"
+              class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-50 text-brandGreen-700 border border-emerald-200 hover:bg-emerald-100 transition"
+            >
+              Ver mapa del deliverista →
+            </button>
+            <button
+              type="button"
+              onclick="clearAllOrders()"
+              class="px-3 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-700 transition"
+              title="Borrar todos los pedidos"
+            >
+              Limpiar
+            </button>
+          </div>
+        </div>
+
+        <div id="business-orders-list" class="space-y-3">
+          <!-- Renderizado dinámicamente -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- B. PANEL DEL DELIVERISTA                                              -->
+    <!-- ===================================================================== -->
+    <section id="panel-rider" aria-label="Panel del Deliverista" class="hidden space-y-6">
+
+      <!-- Controles superiores del repartidor -->
+      <div class="bg-white rounded-3xl p-4 sm:p-5 border border-sky-100 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <span class="inline-block text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-100 text-brandGreen-700 mb-1.5">
+            Panel del Deliverista
+          </span>
+          <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900">
+            Todos tus pedidos en un solo mapa
+          </h2>
+          <p id="route-summary-text" class="text-sm text-slate-600 mt-0.5">
+            Orden recomendado calculado automáticamente según cercanía.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button
+            id="gps-btn"
+            type="button"
+            onclick="requestRiderGPS()"
+            class="px-4 py-3.5 rounded-2xl bg-brandBlue-600 hover:bg-brandBlue-700 active:scale-95 text-white font-extrabold text-sm sm:text-base shadow-md shadow-sky-200 transition flex items-center gap-2 cursor-pointer"
+          >
+            <span>📡</span>
+            <span>Activar mi GPS</span>
+          </button>
+
+          <button
+            type="button"
+            onclick="toggleManualLocationBox()"
+            class="px-3.5 py-3.5 rounded-2xl bg-sky-50 hover:bg-sky-100 text-brandBlue-800 border border-sky-200 font-bold text-sm transition cursor-pointer"
+          >
+            📍 Fijar punto de partida
+          </button>
+
+          <button
+            type="button"
+            onclick="fitMapToStops()"
+            class="px-3.5 py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm transition cursor-pointer"
+          >
+            🔍 Ver todos
+          </button>
+        </div>
+      </div>
+
+      <!-- Selector manual de ubicación si el GPS está bloqueado o en prueba de escritorio -->
+      <div id="manual-location-box" class="hidden bg-sky-50 border border-sky-200 rounded-2xl p-4">
+        <p class="text-sm font-bold text-brandBlue-900 mb-2">
+          Elegir punto de partida del repartidor (útil si no usas GPS en PC o si denegaste el permiso):
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onclick="setManualRiderLocation(-11.9994, -77.0332, 'Óvalo de Carabayllo, Lima')"
+            class="px-3 py-2 rounded-xl bg-white border border-sky-200 text-xs sm:text-sm font-bold text-brandBlue-800 hover:bg-sky-100 transition"
+          >
+            Óvalo de Carabayllo
+          </button>
+          <button
+            type="button"
+            onclick="setManualRiderLocation(-12.0464, -77.0428, 'Centro de Lima')"
+            class="px-3 py-2 rounded-xl bg-white border border-sky-200 text-xs sm:text-sm font-bold text-brandBlue-800 hover:bg-sky-100 transition"
+          >
+            Centro de Lima
+          </button>
+          <button
+            type="button"
+            onclick="setManualRiderLocation(-11.9587, -77.0562, 'Comas — Av. Túpac Amaru')"
+            class="px-3 py-2 rounded-xl bg-white border border-sky-200 text-xs sm:text-sm font-bold text-brandBlue-800 hover:bg-sky-100 transition"
+          >
+            Comas (Av. Túpac Amaru)
+          </button>
+          <button
+            type="button"
+            onclick="setManualRiderLocation(-11.9815, -77.0605, 'Puente Piedra')"
+            class="px-3 py-2 rounded-xl bg-white border border-sky-200 text-xs sm:text-sm font-bold text-brandBlue-800 hover:bg-sky-100 transition"
+          >
+            Puente Piedra
+          </button>
+        </div>
+      </div>
+
+      <!-- Mapa principal + Lista ordenada de entregas -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        <!-- Mapa interactivo central -->
+        <div class="lg:col-span-7 bg-white rounded-3xl p-3 sm:p-4 border border-sky-100 shadow-sm">
+          <div id="rutaunica-map" role="region" aria-label="Mapa interactivo de entregas"></div>
+          <div class="mt-3 px-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+            <div class="flex items-center gap-3 flex-wrap">
+              <span class="inline-flex items-center gap-1.5 font-semibold">
+                <span class="w-3.5 h-3.5 rounded-full bg-brandGreen-600 inline-block"></span>
+                Siguiente entrega (#1)
+              </span>
+              <span class="inline-flex items-center gap-1.5 font-semibold">
+                <span class="w-3.5 h-3.5 rounded-full bg-brandBlue-600 inline-block"></span>
+                Otras entregas
+              </span>
+              <span class="inline-flex items-center gap-1.5 font-semibold">
+                <span class="w-3.5 h-3.5 rounded-full bg-slate-900 border-2 border-emerald-400 inline-block"></span>
+                Tu posición
+              </span>
+            </div>
+            <span id="geocode-status-note" class="text-slate-500">Mapa OpenStreetMap real</span>
+          </div>
+        </div>
+
+        <!-- Lista de entregas activas en orden recomendado -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="bg-white rounded-3xl p-4 sm:p-5 border border-sky-100 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-lg sm:text-xl font-extrabold text-slate-900">
+                Ruta recomendada
+              </h3>
+              <span id="active-stops-counter" class="text-xs font-bold px-3 py-1 rounded-full bg-sky-100 text-brandBlue-800">
+                0 paradas
+              </span>
+            </div>
+
+            <div id="rider-orders-list" class="space-y-3">
+              <!-- Tarjetas generadas dinámicamente -->
+            </div>
+          </div>
+
+          <!-- Entregas completadas en esta sesión/día -->
+          <div class="bg-white rounded-3xl p-4 sm:p-5 border border-emerald-100 shadow-sm">
+            <div class="flex items-center justify-between mb-2.5">
+              <h3 class="text-base font-extrabold text-brandGreen-700 flex items-center gap-2">
+                <span>✅</span>
+                <span>Entregados</span>
+              </h3>
+              <span id="delivered-count-pill" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700">
+                0
+              </span>
+            </div>
+            <div id="rider-delivered-list" class="space-y-2 text-sm">
+              <!-- Lista de entregados -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sección colapsable de ayuda y nota técnica -->
+    <section aria-label="Cómo usar y nota técnica" class="bg-white rounded-3xl border border-sky-100 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onclick="toggleHelpSection()"
+        class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-sky-50/60 transition cursor-pointer"
+      >
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📘</span>
+          <span class="font-extrabold text-slate-800 text-sm sm:text-base">
+            Cómo usar RUTAÚNICA y nota técnica (GPS, mapas, sincronización y APK)
+          </span>
+        </div>
+        <span id="help-chevron" class="text-brandBlue-700 font-extrabold text-lg">+</span>
+      </button>
+
+      <div id="help-content" class="hidden px-5 pb-6 pt-2 border-t border-slate-100 text-sm text-slate-700 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-sky-50/70 rounded-2xl p-4 border border-sky-100">
+            <h4 class="font-extrabold text-brandBlue-800 mb-1.5">1. Uso diario en 3 pasos</h4>
+            <ul class="list-disc pl-5 space-y-1">
+              <li>En <strong>Panel del Negocio</strong>, escribe nombre, dirección y teléfono, y pulsa <em>Enviar pedido al deliverista</em>.</li>
+              <li>Cambia a <strong>Panel del Deliverista</strong> para ver todos los clientes numerados (#1, #2, #3...) en el mismo mapa y con la línea de ruta recomendada.</li>
+              <li>Pulsa <strong>Navegar</strong> para abrir Google Maps hacia ese cliente o <strong>Marcar entregado</strong> al completar la entrega.</li>
+            </ul>
+          </div>
+
+          <div class="bg-emerald-50/70 rounded-2xl p-4 border border-emerald-100">
+            <h4 class="font-extrabold text-brandGreen-700 mb-1.5">2. Qué funciona de verdad hoy</h4>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><strong>Mapa real:</strong> OpenStreetMap con Leaflet, zoom, marcadores numerados y ruta calculada por cercanía.</li>
+              <li><strong>Geocodificación real:</strong> Consulta OpenStreetMap Nominatim para ubicar direcciones (con respaldo local si no hay señal).</li>
+              <li><strong>Sincronización en vivo:</strong> Usa <code>localStorage</code> + <code>BroadcastChannel</code> en el mismo navegador/dispositivo.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-1.5">
+          <h4 class="font-extrabold text-slate-900">3. Sincronización entre celulares distintos y versión APK Android</h4>
+          <p>
+            <strong>Entre dos celulares distintos (negocio en una PC y repartidor en su celular):</strong> la sincronización local funciona en el mismo navegador. Para que llegue en tiempo real de una PC a otro celular a distancia, debes conectar una base de datos en la nube (como <strong>Firebase Firestore</strong> o <strong>Supabase</strong>).
+          </p>
+          <p>
+            <strong>Archivo APK para Android:</strong> desde el navegador no se compila directamente un <code>.apk</code> firmado. Para tenerlo como app instalable o APK, puedes abrir esta página en Chrome y usar <em>"Agregar a pantalla principal"</em> (PWA) o empaquetarla con <strong>Capacitor</strong> / <strong>PWABuilder</strong>.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal de guía rápida (abrible desde el botón superior en escritorio) -->
+  <div id="guide-modal" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-sky-100 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xl font-extrabold text-brandBlue-800">Guía rápida de RUTAÚNICA</h3>
+        <button type="button" onclick="closeGuideModal()" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">✕</button>
+      </div>
+      <p class="text-sm text-slate-600 leading-relaxed">
+        <strong>RUTAÚNICA</strong> une todos los pedidos de tu negocio en un solo mapa numerado para tu deliverista:
+      </p>
+      <ol class="list-decimal pl-5 text-sm text-slate-700 space-y-2">
+        <li>Registra pedidos en <strong>Panel del Negocio</strong>.</li>
+        <li>Abre <strong>Panel del Deliverista</strong>, activa tu GPS (o elige un punto de partida) y revisa el orden recomendado.</li>
+        <li>Usa <strong>Navegar</strong> para ir al domicilio y <strong>Marcar entregado</strong> cuando entregues el pedido.</li>
+      </ol>
+      <p class="text-xs text-slate-500 bg-sky-50 p-3 rounded-xl border border-sky-100">
+        Nota: La sincronización actual ocurre en tiempo real dentro de este navegador/dispositivo. Para conectar varios celulares separados por internet, se conecta luego a Firebase o Supabase; y para generar un archivo <code>.apk</code>, se empaqueta con Capacitor o PWABuilder.
+      </p>
+      <button
+        type="button"
+        onclick="closeGuideModal()"
+        class="w-full py-3 rounded-2xl bg-brandBlue-600 hover:bg-brandBlue-700 text-white font-bold text-sm transition cursor-pointer"
+      >
+        Entendido
+      </button>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+    // =========================================================================
+    // CONSTANTES Y ESTADO INICIAL DE RUTAÚNICA
+    // =========================================================================
+    const STORAGE_KEY = 'rutaunica_orders_v1';
+    const RIDER_LOC_KEY = 'rutaunica_rider_loc_v1';
+    const CHANNEL_NAME = 'rutaunica_live_sync_channel';
+
+    // Punto de referencia por defecto en Lima Norte (Carabayllo / Lima)
+    const DEFAULT_CENTER = { lat: -11.9994, lng: -77.0332, label: 'Carabayllo, Lima' };
+
+    // Direcciones conocidas de respaldo en Lima para pruebas rápidas o sin conexión
+    const FALLBACK_COORDS = [
+      { keywords: ['carabayllo', 'tupac amaru', 'ovalo'], lat: -11.9985, lng: -77.0325 },
+      { keywords: ['comas', 'universitaria', 'belaunde'], lat: -11.9465, lng: -77.0585 },
+      { keywords: ['puente piedra', 'panamericana norte'], lat: -11.8675, lng: -77.0772 },
+      { keywords: ['los olivos', 'izaguirre', 'naranjal'], lat: -11.9885, lng: -77.0652 },
+      { keywords: ['san martin', 'habich', 'peru'], lat: -12.0155, lng: -77.0675 },
+      { keywords: ['lima', 'centro', 'abancay', 'wilson'], lat: -12.0464, lng: -77.0428 },
+      { keywords: ['miraflores', 'larco', 'pardo'], lat: -12.1211, lng: -77.0297 },
+      { keywords: ['surco', 'benavides', 'caminos del inca'], lat: -12.1385, lng: -76.9935 }
+    ];
+
+    // Pedidos de ejemplo iniciales para que el usuario pueda probar al instante
+    const SAMPLE_ORDERS = [
+      {
+        id: 'ord-sample-1',
+        customerName: 'Carlos Mendoza',
+        address: 'Av. Túpac Amaru 4320, Carabayllo, Lima',
+        phone: '987 412 109',
+        status: 'pending',
+        lat: -11.9952,
+        lng: -77.0341,
+        geoSource: 'ejemplo',
+        createdAt: Date.now() - 1000 * 60 * 18,
+        deliveredAt: null
+      },
+      {
+        id: 'ord-sample-2',
+        customerName: 'Lucía Paredes',
+        address: 'Av. Universitaria 6850, Comas, Lima',
+        phone: '996 320 845',
+        status: 'pending',
+        lat: -11.9512,
+        lng: -77.0602,
+        geoSource: 'ejemplo',
+        createdAt: Date.now() - 1000 * 60 * 12,
+        deliveredAt: null
+      },
+      {
+        id: 'ord-sample-3',
+        customerName: 'Jorge Huamán',
+        address: 'Av. Carlos Izaguirre 1240, Los Olivos, Lima',
+        phone: '945 778 231',
+        status: 'pending',
+        lat: -11.9879,
+        lng: -77.0648,
+        geoSource: 'ejemplo',
+        createdAt: Date.now() - 1000 * 60 * 6,
+        deliveredAt: null
+      }
+    ];
+
+    let orders = [];
+    let riderLocation = null; // { lat, lng, label, source: 'gps' | 'manual' }
+    let currentView = 'business';
+    let map = null;
+    let stopMarkersLayer = null;
+    let routePolyline = null;
+    let riderMarker = null;
+    let watchId = null;
+    let broadcastChannel = null;
+
+    // =========================================================================
+    // NOTIFICACIONES SUAVES EN PANTALLA (SIN ALERT)
+    // =========================================================================
+    let toastTimeout = null;
+    function showToast(message, type = 'info') {
+      const banner = document.getElementById('toast-banner');
+      const inner = document.getElementById('toast-inner');
+      const msgEl = document.getElementById('toast-message');
+
+      msgEl.textContent = message;
+      inner.className = 'rounded-2xl px-4 py-3.5 shadow-xl border text-sm font-semibold flex items-center justify-between gap-3 ';
+
+      if (type === 'success') {
+        inner.className += 'bg-brandGreen-700 text-white border-emerald-500';
+      } else if (type === 'error') {
+        inner.className += 'bg-red-700 text-white border-red-500';
+      } else {
+        inner.className += 'bg-slate-900 text-white border-slate-700';
+      }
+
+      banner.classList.remove('hidden');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        banner.classList.add('hidden');
+      }, 3600);
+    }
+
+    function hideToast() {
+      document.getElementById('toast-banner').classList.add('hidden');
+    }
+
+    // =========================================================================
+    // ALMACENAMIENTO Y SINCRONIZACIÓN EN TIEMPO REAL
+    // =========================================================================
+    function loadPersistedData() {
+      try {
+        const rawOrders = localStorage.getItem(STORAGE_KEY);
+        if (rawOrders) {
+          const parsed = JSON.parse(rawOrders);
+          if (Array.isArray(parsed)) {
+            orders = parsed;
+          }
+        } else {
+          orders = [...SAMPLE_ORDERS];
+          saveOrders(false);
+        }
+
+        const rawRider = localStorage.getItem(RIDER_LOC_KEY);
+        if (rawRider) {
+          riderLocation = JSON.parse(rawRider);
+        }
+      } catch (err) {
+        console.error('Error leyendo almacenamiento local:', err);
+        orders = [...SAMPLE_ORDERS];
+      }
+    }
+
+    function saveOrders(notifyOthers = true) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+        if (notifyOthers && broadcastChannel) {
+          broadcastChannel.postMessage({ type: 'ORDERS_UPDATED', timestamp: Date.now() });
+        }
+      } catch (err) {
+        console.error('Error guardando pedidos:', err);
+        showToast('No se pudo guardar en el almacenamiento local.', 'error');
+      }
+    }
+
+    function saveRiderLocation() {
+      try {
+        if (riderLocation) {
+          localStorage.setItem(RIDER_LOC_KEY, JSON.stringify(riderLocation));
+        } else {
+          localStorage.removeItem(RIDER_LOC_KEY);
+        }
+      } catch (err) {
+        console.error('Error guardando ubicación GPS:', err);
+      }
+    }
+
+    function setupLiveSync() {
+      if ('BroadcastChannel' in window) {
+        broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
+        broadcastChannel.onmessage = (event) => {
+          if (event.data && event.data.type === 'ORDERS_UPDATED') {
+            loadPersistedData();
+            renderAll();
+            showToast('Pedidos actualizados en tiempo real.');
+          }
+        };
+      }
+
+      window.addEventListener('storage', (event) => {
+        if (event.key === STORAGE_KEY) {
+          loadPersistedData();
+          renderAll();
+        }
+      });
+    }
+
+    // =========================================================================
+    // GEOCODIFICACIÓN REAL (NOMINATIM) CON RESPALDO INTELIGENTE
+    // =========================================================================
+    function fallbackGeocode(address, indexOffset = 0) {
+      const normalized = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      for (const item of FALLBACK_COORDS) {
+        if (item.keywords.some((kw) => normalized.includes(kw))) {
+          const jitterLat = ((indexOffset % 5) - 2) * 0.0032;
+          const jitterLng = (((indexOffset + 2) % 5) - 2) * 0.0035;
+          return {
+            lat: Number((item.lat + jitterLat).toFixed(6)),
+            lng: Number((item.lng + jitterLng).toFixed(6)),
+            source: 'respaldo'
+          };
+        }
+      }
+      const jitterLat = ((indexOffset % 7) - 3) * 0.004;
+      const jitterLng = (((indexOffset + 3) % 7) - 3) * 0.004;
+      return {
+        lat: Number((DEFAULT_CENTER.lat + jitterLat).toFixed(6)),
+        lng: Number((DEFAULT_CENTER.lng + jitterLng).toFixed(6)),
+        source: 'respaldo'
+      };
+    }
+
+    async function geocodeAddress(address) {
+      const cleanAddress = address.trim();
+      const queryAddress = cleanAddress.toLowerCase().includes('peru') || cleanAddress.toLowerCase().includes('perú') || cleanAddress.toLowerCase().includes('lima')
+        ? cleanAddress
+        : `${cleanAddress}, Lima, Peru`;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4500);
+
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=pe&q=${encodeURIComponent(queryAddress)}`;
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timer);
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+
+        if (Array.isArray(data) && data.length > 0) {
+          return {
+            lat: parseFloat(data[0].lat),
+            lng: parseFloat(data[0].lon),
+            source: 'nominatim'
+          };
+        }
+      } catch (err) {
+        console.warn('Geocodificación Nominatim no disponible, usando respaldo:', err.message);
+      }
+
+      return fallbackGeocode(cleanAddress, orders.length + 1);
+    }
+
+    // =========================================================================
+    // CÁLCULO DE DISTANCIA Y ORDEN RECOMENDADO DE ENTREGA (VECINO MÁS CERCANO)
+    // =========================================================================
+    function haversineKm(a, b) {
+      const R = 6371;
+      const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+      const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+      const lat1 = (a.lat * Math.PI) / 180;
+      const lat2 = (b.lat * Math.PI) / 180;
+
+      const h =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+      return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    }
+
+    function getOrderedPendingStops() {
+      const pending = orders.filter((o) => o.status === 'pending');
+      if (pending.length === 0) return [];
+
+      // Punto de partida: ubicación GPS/manual del repartidor, o primer pedido si aún no hay GPS
+      const origin = riderLocation
+        ? { lat: riderLocation.lat, lng: riderLocation.lng }
+        : { lat: pending[0].lat, lng: pending[0].lng };
+
+      const remaining = [...pending];
+      const ordered = [];
+      let currentPoint = origin;
+
+      while (remaining.length > 0) {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < remaining.length; i++) {
+          const d = haversineKm(currentPoint, remaining[i]);
+          if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+          }
+        }
+
+        const [nextStop] = remaining.splice(bestIdx, 1);
+        ordered.push({
+          ...nextStop,
+          routeNumber: ordered.length + 1,
+          legDistanceKm: Number(bestDist.toFixed(1))
+        });
+        currentPoint = { lat: nextStop.lat, lng: nextStop.lng };
+      }
+
+      return ordered;
+    }
+
+    // =========================================================================
+    // ACCIONES DE NEGOCIO Y DELIVERISTA
+    // =========================================================================
+    async function handleCreateOrder(event) {
+      event.preventDefault();
+
+      const nameInput = document.getElementById('customer-name');
+      const addressInput = document.getElementById('customer-address');
+      const phoneInput = document.getElementById('customer-phone');
+      const submitBtn = document.getElementById('submit-order-btn');
+
+      const customerName = nameInput.value.trim();
+      const address = addressInput.value.trim();
+      const phone = phoneInput.value.trim();
+
+      if (!customerName || !address || !phone) {
+        showToast('Completa nombre, dirección y teléfono.', 'error');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span>⏳</span><span>Ubicando dirección en el mapa...</span>';
+
+      try {
+        const coords = await geocodeAddress(address);
+        const newOrder = {
+          id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          customerName,
+          address,
+          phone,
+          status: 'pending',
+          lat: coords.lat,
+          lng: coords.lng,
+          geoSource: coords.source,
+          createdAt: Date.now(),
+          deliveredAt: null
+        };
+
+        orders.unshift(newOrder);
+        saveOrders(true);
+        renderAll();
+
+        nameInput.value = '';
+        addressInput.value = '';
+        phoneInput.value = '';
+
+        showToast(
+          coords.source === 'nominatim'
+            ? `Pedido de ${customerName} enviado y ubicado en el mapa.`
+            : `Pedido de ${customerName} enviado al deliverista.`,
+          'success'
+        );
+      } catch (err) {
+        console.error('Error al crear pedido:', err);
+        showToast('Ocurrió un error al registrar el pedido.', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>🚀</span><span>Enviar pedido al deliverista</span>';
+      }
+    }
+
+    function markOrderDelivered(orderId) {
+      const target = orders.find((o) => o.id === orderId);
+      if (!target) return;
+
+      target.status = 'delivered';
+      target.deliveredAt = Date.now();
+      saveOrders(true);
+      renderAll();
+      showToast(`Pedido de ${target.customerName} marcado como entregado.`, 'success');
+    }
+
+    function restoreOrderPending(orderId) {
+      const target = orders.find((o) => o.id === orderId);
+      if (!target) return;
+
+      target.status = 'pending';
+      target.deliveredAt = null;
+      saveOrders(true);
+      renderAll();
+      showToast(`Pedido de ${target.customerName} devuelto a ruta.`);
+    }
+
+    function deleteOrder(orderId) {
+      orders = orders.filter((o) => o.id !== orderId);
+      saveOrders(true);
+      renderAll();
+      showToast('Pedido eliminado.');
+    }
+
+    function clearAllOrders() {
+      orders = [];
+      saveOrders(true);
+      renderAll();
+      showToast('Todos los pedidos fueron limpiados.');
+    }
+
+    function loadSampleOrders() {
+      orders = SAMPLE_ORDERS.map((item, idx) => ({
+        ...item,
+        id: `ord-sample-${Date.now()}-${idx}`,
+        status: 'pending',
+        createdAt: Date.now() - (3 - idx) * 600000,
+        deliveredAt: null
+      }));
+      saveOrders(true);
+      renderAll();
+      if (currentView === 'rider') {
+        fitMapToStops();
+      }
+      showToast('Se cargaron 3 pedidos de ejemplo en Lima.', 'success');
+    }
+
+    // =========================================================================
+    // GPS Y UBICACIÓN DEL REPARTIDOR
+    // =========================================================================
+    function requestRiderGPS() {
+      if (!('geolocation' in navigator)) {
+        showToast('Este dispositivo no soporta GPS. Usa "Fijar punto de partida".', 'error');
+        document.getElementById('manual-location-box').classList.remove('hidden');
+        return;
+      }
+
+      const gpsBtn = document.getElementById('gps-btn');
+      gpsBtn.disabled = true;
+      gpsBtn.innerHTML = '<span>🛰️</span><span>Buscando GPS...</span>';
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          riderLocation = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            label: 'GPS en vivo',
+            source: 'gps'
+          };
+          saveRiderLocation();
+          gpsBtn.disabled = false;
+          gpsBtn.innerHTML = '<span>📡</span><span>Actualizar GPS</span>';
+          renderAll();
+          if (map) {
+            map.setView([riderLocation.lat, riderLocation.lng], 14);
+          }
+          showToast('Ubicación GPS activada y ruta recalculada.', 'success');
+        },
+        (err) => {
+          console.warn('Error GPS:', err);
+          gpsBtn.disabled = false;
+          gpsBtn.innerHTML = '<span>📡</span><span>Activar mi GPS</span>';
+          document.getElementById('manual-location-box').classList.remove('hidden');
+          showToast('No se obtuvo permiso de GPS. Puedes elegir un punto de partida.', 'error');
+        },
+        { enableHighAccuracy: true, timeout: 9000, maximumAge: 10000 }
+      );
+
+      // Mantener seguimiento suave si está disponible
+      if (watchId === null) {
+        try {
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+              riderLocation = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                label: 'GPS en vivo',
+                source: 'gps'
+              };
+              saveRiderLocation();
+              renderStats();
+              renderMap();
+            },
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 15000 }
+          );
+        } catch (_) {}
+      }
+    }
+
+    function setManualRiderLocation(lat, lng, label) {
+      riderLocation = { lat, lng, label, source: 'manual' };
+      saveRiderLocation();
+      document.getElementById('manual-location-box').classList.add('hidden');
+      renderAll();
+      if (map) {
+        map.setView([lat, lng], 13);
+      }
+      showToast(`Punto de partida fijado: ${label}`, 'success');
+    }
+
+    function toggleManualLocationBox() {
+      document.getElementById('manual-location-box').classList.toggle('hidden');
+    }
+
+    // =========================================================================
+    // NAVEGACIÓN EXTERNA HACIA UN CLIENTE
+    // =========================================================================
+    function focusAndNavigate(orderId, openExternal = false) {
+      const order = orders.find((o) => o.id === orderId);
+      if (!order) return;
+
+      if (currentView !== 'rider') {
+        switchView('rider');
+      }
+
+      if (map) {
+        map.setView([order.lat, order.lng], 16, { animate: true });
+      }
+
+      if (openExternal) {
+        const dest = encodeURIComponent(`${order.lat},${order.lng}`);
+        const originParam = riderLocation
+          ? `&origin=${encodeURIComponent(`${riderLocation.lat},${riderLocation.lng}`)}`
+          : '';
+        const mapsUrl = `https://www.google.com/maps/dir/?api=1${originParam}&destination=${dest}&travelmode=driving`;
+        window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+      }
+    }
+
+    // =========================================================================
+    // MAPA INTERACTIVO CON LEAFLET
+    // =========================================================================
+    function initMap() {
+      if (map || typeof L === 'undefined') return;
+
+      const startLat = riderLocation ? riderLocation.lat : DEFAULT_CENTER.lat;
+      const startLng = riderLocation ? riderLocation.lng : DEFAULT_CENTER.lng;
+
+      map = L.map('rutaunica-map', {
+        zoomControl: true,
+        scrollWheelZoom: true
+      }).setView([startLat, startLng], 12);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      stopMarkersLayer = L.layerGroup().addTo(map);
+      renderMap();
+    }
+
+    function fitMapToStops() {
+      if (!map) return;
+      const stops = getOrderedPendingStops();
+      const points = stops.map((s) => [s.lat, s.lng]);
+      if (riderLocation) {
+        points.push([riderLocation.lat, riderLocation.lng]);
+      }
+
+      if (points.length === 0) {
+        map.setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], 12);
+        return;
+      }
+
+      if (points.length === 1) {
+        map.setView(points[0], 15);
+        return;
+      }
+
+      const bounds = L.latLngBounds(points);
+      map.fitBounds(bounds, { padding: [45, 45] });
+    }
+
+    function renderMap() {
+      if (!map || !stopMarkersLayer) return;
+
+      stopMarkersLayer.clearLayers();
+      if (routePolyline) {
+        map.removeLayer(routePolyline);
+        routePolyline = null;
+      }
+      if (riderMarker) {
+        map.removeLayer(riderMarker);
+        riderMarker = null;
+      }
+
+      const orderedStops = getOrderedPendingStops();
+      const polylineCoords = [];
+
+      // Marcador de ubicación actual del repartidor si está activo
+      if (riderLocation) {
+        const riderIcon = L.divIcon({
+          className: '',
+          html: `<div class="gps-rider-pin" title="Tu ubicación">🛵</div>`,
+          iconSize: [36, 36],
+          iconAnchor: [0, 0]
+        });
+
+        riderMarker = L.marker([riderLocation.lat, riderLocation.lng], { icon: riderIcon })
+          .addTo(map)
+          .bindPopup(`<strong>Repartidor</strong><br/>${escapeHtml(riderLocation.label)}`);
+
+        polylineCoords.push([riderLocation.lat, riderLocation.lng]);
+      }
+
+      // Marcadores numerados 1, 2, 3... por cada pedido pendiente
+      orderedStops.forEach((stop, idx) => {
+        const isNext = idx === 0;
+        const pinIcon = L.divIcon({
+          className: '',
+          html: `<div class="rider-number-pin ${isNext ? 'next-stop' : ''}">${stop.routeNumber}</div>`,
+          iconSize: [isNext ? 38 : 34, isNext ? 38 : 34],
+          iconAnchor: [0, 0]
+        });
+
+        const popupHtml = `
+          <div style="min-width:190px;font-family:Inter,sans-serif;">
+            <div style="font-weight:800;color:#0369a1;margin-bottom:2px;">Entrega #${stop.routeNumber} — ${escapeHtml(stop.customerName)}</div>
+            <div style="font-size:12px;color:#334155;margin-bottom:4px;">${escapeHtml(stop.address)}</div>
+            <div style="font-size:12px;font-weight:600;color:#0f172a;">Tel: ${escapeHtml(stop.phone)}</div>
+          </div>
+        `;
+
+        L.marker([stop.lat, stop.lng], { icon: pinIcon })
+          .addTo(stopMarkersLayer)
+          .bindPopup(popupHtml);
+
+        polylineCoords.push([stop.lat, stop.lng]);
+      });
+
+      // Línea conectando el recorrido recomendado
+      if (polylineCoords.length >= 2) {
+        routePolyline = L.polyline(polylineCoords, {
+          color: '#0284c7',
+          weight: 4,
+          opacity: 0.85,
+          dashArray: '8, 8'
+        }).addTo(map);
+      }
+
+      // Nota sobre fuente de coordenadas
+      const hasFallback = orderedStops.some((s) => s.geoSource === 'respaldo');
+      const noteEl = document.getElementById('geocode-status-note');
+      noteEl.textContent = hasFallback
+        ? 'Algunas direcciones usan ubicación aproximada de respaldo'
+        : 'Direcciones ubicadas en OpenStreetMap';
+    }
+
+    // =========================================================================
+    // RENDERIZADO DE INTERFAZ (ESTADÍSTICAS, NEGOCIO Y DELIVERISTA)
+    // =========================================================================
+    function renderStats() {
+      const pendingCount = orders.filter((o) => o.status === 'pending').length;
+      const deliveredCount = orders.filter((o) => o.status === 'delivered').length;
+
+      document.getElementById('stat-pending').textContent = String(pendingCount);
+      document.getElementById('stat-delivered').textContent = String(deliveredCount);
+      document.getElementById('rider-badge-count').textContent = String(pendingCount);
+      document.getElementById('active-stops-counter').textContent = `${pendingCount} ${pendingCount === 1 ? 'parada' : 'paradas'}`;
+      document.getElementById('delivered-count-pill').textContent = String(deliveredCount);
+
+      const gpsStatEl = document.getElementById('stat-gps');
+      if (!riderLocation) {
+        gpsStatEl.textContent = 'Sin activar (orden por cercanía entre clientes)';
+        gpsStatEl.className = 'text-xs sm:text-sm font-bold text-slate-600 mt-1';
+      } else if (riderLocation.source === 'gps') {
+        gpsStatEl.textContent = 'GPS activo en tiempo real';
+        gpsStatEl.className = 'text-sm sm:text-base font-extrabold text-brandGreen-700 mt-1';
+      } else {
+        gpsStatEl.textContent = `Punto fijo: ${riderLocation.label}`;
+        gpsStatEl.className = 'text-xs sm:text-sm font-bold text-brandBlue-700 mt-1';
+      }
+    }
+
+    function renderBusinessList() {
+      const listEl = document.getElementById('business-orders-list');
+      const orderedStops = getOrderedPendingStops();
+      const orderNumMap = new Map(orderedStops.map((s) => [s.id, s.routeNumber]));
+
+      if (orders.length === 0) {
+        listEl.innerHTML = `
+          <div class="text-center py-10 px-4 rounded-2xl bg-sky-50/60 border border-dashed border-sky-200">
+            <p class="text-2xl mb-2">🛵</p>
+            <p class="font-bold text-slate-800">Aún no hay pedidos registrados</p>
+            <p class="text-sm text-slate-600 mt-1">Usa el formulario de la izquierda o carga el ejemplo de Lima para probar.</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = orders
+        .map((order) => {
+          const isDelivered = order.status === 'delivered';
+          const routeNum = orderNumMap.get(order.id);
+
+          return `
+            <div class="p-4 rounded-2xl border ${isDelivered ? 'bg-emerald-50/40 border-emerald-200' : 'bg-white border-slate-200'} flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div class="space-y-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  ${
+                    isDelivered
+                      ? `<span class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700">✅ Entregado</span>`
+                      : `<span class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-sky-100 text-brandBlue-800">📍 En ruta${routeNum ? ` · #${routeNum}` : ''}</span>`
+                  }
+                  <span class="font-extrabold text-slate-900 text-base truncate">${escapeHtml(order.customerName)}</span>
+                </div>
+                <p class="text-sm text-slate-700 break-words">${escapeHtml(order.address)}</p>
+                <p class="text-xs font-semibold text-slate-500">Tel: ${escapeHtml(order.phone)}</p>
+              </div>
+
+              <div class="flex items-center gap-2 shrink-0">
+                ${
+                  !isDelivered
+                    ? `<button type="button" onclick="focusAndNavigate('${order.id}', false)" class="px-3 py-2 rounded-xl text-xs font-bold bg-sky-50 text-brandBlue-700 hover:bg-sky-100 transition cursor-pointer">Ver en mapa</button>`
+                    : ''
+                }
+                <button
+                  type="button"
+                  onclick="deleteOrder('${order.id}')"
+                  class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-700 transition cursor-pointer"
+                  title="Eliminar pedido"
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    function renderRiderList() {
+      const listEl = document.getElementById('rider-orders-list');
+      const deliveredEl = document.getElementById('rider-delivered-list');
+      const summaryEl = document.getElementById('route-summary-text');
+
+      const orderedStops = getOrderedPendingStops();
+      const deliveredOrders = orders.filter((o) => o.status === 'delivered');
+
+      if (orderedStops.length === 0) {
+        summaryEl.textContent = 'No hay entregas pendientes en este momento.';
+        listEl.innerHTML = `
+          <div class="text-center py-8 px-4 rounded-2xl bg-emerald-50/60 border border-emerald-200">
+            <p class="text-2xl mb-1.5">🎉</p>
+            <p class="font-extrabold text-brandGreen-700">¡Todas las entregas completadas!</p>
+            <p class="text-xs sm:text-sm text-slate-600 mt-1">Cuando el negocio envíe nuevos pedidos aparecerán aquí en el mapa.</p>
+          </div>
+        `;
+      } else {
+        const totalKm = orderedStops.reduce((acc, item) => acc + (item.legDistanceKm || 0), 0).toFixed(1);
+        summaryEl.textContent = `${orderedStops.length} ${orderedStops.length === 1 ? 'entrega activa' : 'entregas activas'} · Distancia estimada entre puntos: ~${totalKm} km.`;
+
+        listEl.innerHTML = orderedStops
+          .map((stop, idx) => {
+            const isFirst = idx === 0;
+            return `
+              <div class="p-4 rounded-2xl border-2 ${isFirst ? 'border-brandGreen-600 bg-emerald-50/40' : 'border-sky-100 bg-white'} space-y-3">
+                <div class="flex items-start gap-3">
+                  <div class="w-9 h-9 rounded-full ${isFirst ? 'bg-brandGreen-600' : 'bg-brandBlue-600'} text-white font-extrabold text-sm flex items-center justify-center shrink-0 shadow-sm">
+                    ${stop.routeNumber}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                      <h4 class="font-extrabold text-slate-900 text-base">${escapeHtml(stop.customerName)}</h4>
+                      ${
+                        isFirst
+                          ? `<span class="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700">Siguiente</span>`
+                          : `<span class="text-xs font-semibold text-slate-500">~${stop.legDistanceKm} km</span>`
+                      }
+                    </div>
+                    <p class="text-sm text-slate-700 mt-0.5 break-words">${escapeHtml(stop.address)}</p>
+                    <p class="text-xs font-semibold text-slate-600 mt-1">📞 ${escapeHtml(stop.phone)}</p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onclick="focusAndNavigate('${stop.id}', true)"
+                    class="py-3 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 text-brandBlue-800 border border-sky-200 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <span>🧭</span>
+                    <span>Navegar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onclick="markOrderDelivered('${stop.id}')"
+                    class="py-3 px-3 rounded-xl bg-brandGreen-600 hover:bg-brandGreen-700 active:scale-[0.99] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+                  >
+                    <span>✓</span>
+                    <span>Marcar entregado</span>
+                  </button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+      }
+
+      if (deliveredOrders.length === 0) {
+        deliveredEl.innerHTML = `<p class="text-xs text-slate-500 py-2">Aún no has marcado pedidos como entregados.</p>`;
+      } else {
+        deliveredEl.innerHTML = deliveredOrders
+          .map(
+            (item) => `
+              <div class="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100">
+                <div class="min-w-0">
+                  <p class="font-bold text-slate-800 truncate">${escapeHtml(item.customerName)}</p>
+                  <p class="text-xs text-slate-500 truncate">${escapeHtml(item.address)}</p>
+                </div>
+                <button
+                  type="button"
+                  onclick="restoreOrderPending('${item.id}')"
+                  class="text-xs font-bold text-brandBlue-700 hover:underline shrink-0 cursor-pointer"
+                >
+                  Deshacer
+                </button>
+              </div>
+            `
+          )
+          .join('');
+      }
+    }
+
+    function renderAll() {
+      renderStats();
+      renderBusinessList();
+      renderRiderList();
+      renderMap();
+    }
+
+    // =========================================================================
+    // CAMBIO DE VISTA Y UTILIDADES UI
+    // =========================================================================
+    function switchView(viewName) {
+      currentView = viewName;
+
+      const businessSection = document.getElementById('panel-business');
+      const riderSection = document.getElementById('panel-rider');
+      const tabBusiness = document.getElementById('tab-business');
+      const tabRider = document.getElementById('tab-rider');
+
+      if (viewName === 'business') {
+        businessSection.classList.remove('hidden');
+        riderSection.classList.add('hidden');
+
+        tabBusiness.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition bg-brandBlue-600 text-white shadow-sm cursor-pointer';
+        tabRider.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition text-brandBlue-800 hover:bg-white cursor-pointer';
+      } else {
+        businessSection.classList.add('hidden');
+        riderSection.classList.remove('hidden');
+
+        tabRider.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition bg-brandGreen-600 text-white shadow-sm cursor-pointer';
+        tabBusiness.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition text-brandBlue-800 hover:bg-white cursor-pointer';
+
+        initMap();
+        setTimeout(() => {
+          if (map) {
+            map.invalidateSize();
+            fitMapToStops();
+          }
+        }, 80);
+      }
+    }
+
+    function toggleHelpSection() {
+      const content = document.getElementById('help-content');
+      const chevron = document.getElementById('help-chevron');
+      const isHidden = content.classList.contains('hidden');
+      content.classList.toggle('hidden');
+      chevron.textContent = isHidden ? '−' : '+';
+    }
+
+    function openGuideModal() {
+      document.getElementById('guide-modal').classList.remove('hidden');
+    }
+
+    function closeGuideModal() {
+      document.getElementById('guide-modal').classList.add('hidden');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = String(text || '');
+      return div.innerHTML;
+    }
+
+    // =========================================================================
+    // INICIALIZACIÓN
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      loadPersistedData();
+      setupLiveSync();
+      renderAll();
+    });
+  </script>
+</body>
+</html>
+```
