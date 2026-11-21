@@ -141,8 +141,8 @@
               <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-brandBlue-800">
                 RUTAÚNICA
               </h1>
-              <span id="live-sync-pill" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700 border border-emerald-200">
-                EN VIVO · NUBE
+              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700 border border-emerald-200">
+                EN VIVO
               </span>
             </div>
             <p class="text-xs sm:text-sm font-medium text-slate-600">
@@ -519,7 +519,7 @@
             <ul class="list-disc pl-5 space-y-1">
               <li><strong>Mapa real:</strong> OpenStreetMap con Leaflet, zoom, marcadores numerados y ruta calculada por cercanía.</li>
               <li><strong>Geocodificación real:</strong> Consulta OpenStreetMap Nominatim para ubicar direcciones (con respaldo local si no hay señal).</li>
-              <li><strong>Sincronización en vivo:</strong> Conectado a <strong>Firebase Realtime Database</strong> entre dispositivos, con respaldo local en <code>localStorage</code> y <code>BroadcastChannel</code>.</li>
+              <li><strong>Sincronización en vivo:</strong> Usa <code>localStorage</code> + <code>BroadcastChannel</code> en el mismo navegador/dispositivo y <strong>Firebase Realtime Database</strong> entre dispositivos.</li>
             </ul>
           </div>
         </div>
@@ -527,7 +527,7 @@
         <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-1.5">
           <h4 class="font-extrabold text-slate-900">3. Sincronización entre celulares distintos y versión APK Android</h4>
           <p>
-            <strong>Entre dos celulares distintos (negocio en una PC/celular y repartidor en otro celular):</strong> ya está conectado a Firebase Realtime Database para que los pedidos creados en el negocio aparezcan en vivo en el panel del deliverista.
+            <strong>Entre dos celulares distintos (negocio en una PC y repartidor en su celular):</strong> está conectado a <strong>Firebase Realtime Database</strong> para que los pedidos lleguen en tiempo real entre dispositivos, con respaldo local en el navegador.
           </p>
           <p>
             <strong>Archivo APK para Android:</strong> desde el navegador no se compila directamente un <code>.apk</code> firmado. Para tenerlo como app instalable o APK, puedes abrir esta página en Chrome y usar <em>"Agregar a pantalla principal"</em> (PWA) o empaquetarla con <strong>Capacitor</strong> / <strong>PWABuilder</strong>.
@@ -553,7 +553,7 @@
         <li>Usa <strong>Navegar</strong> para ir al domicilio y <strong>Marcar entregado</strong> cuando entregues el pedido.</li>
       </ol>
       <p class="text-xs text-slate-500 bg-sky-50 p-3 rounded-xl border border-sky-100">
-        Nota: La sincronización está conectada a Firebase Realtime Database con respaldo local en el navegador; para generar un archivo <code>.apk</code>, se empaqueta con Capacitor o PWABuilder.
+        Nota: La sincronización ocurre en tiempo real mediante Firebase Realtime Database con respaldo local en el navegador; para generar un archivo <code>.apk</code>, se empaqueta con Capacitor o PWABuilder.
       </p>
       <button
         type="button"
@@ -572,7 +572,7 @@
     crossorigin=""
   ></script>
 
-  <!-- Firebase SDK (compat para navegador / GitHub Pages) -->
+  <!-- Firebase Realtime Database SDK (compat para navegador / GitHub Pages) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
@@ -583,7 +583,7 @@
     const STORAGE_KEY = 'rutaunica_orders_v1';
     const RIDER_LOC_KEY = 'rutaunica_rider_loc_v1';
     const CHANNEL_NAME = 'rutaunica_live_sync_channel';
-    const DB_ORDERS_PATH = 'rutaunica/orders';
+    const DB_ORDERS_PATH = 'pedidos';
 
     const firebaseConfig = {
       apiKey: "AIzaSyB1WqLh9HLL--w0zTreuBDS7ScIa1cfe2Y",
@@ -660,9 +660,8 @@
     let riderMarker = null;
     let watchId = null;
     let broadcastChannel = null;
-    let rtdb = null;
     let rtdbOrdersRef = null;
-    let hasReceivedRemoteSnapshot = false;
+    let hasRemoteSnapshot = false;
 
     // =========================================================================
     // NOTIFICACIONES SUAVES EN PANTALLA (SIN ALERT)
@@ -695,20 +694,8 @@
       document.getElementById('toast-banner').classList.add('hidden');
     }
 
-    function updateSyncBadge(online) {
-      const pill = document.getElementById('live-sync-pill');
-      if (!pill) return;
-      if (online) {
-        pill.textContent = 'EN VIVO · NUBE';
-        pill.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700 border border-emerald-200';
-      } else {
-        pill.textContent = 'EN VIVO · LOCAL';
-        pill.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-100 text-brandBlue-700 border border-sky-200';
-      }
-    }
-
     // =========================================================================
-    // ALMACENAMIENTO LOCAL Y SINCRONIZACIÓN EN TIEMPO REAL (FIREBASE + LOCAL)
+    // ALMACENAMIENTO Y SINCRONIZACIÓN EN TIEMPO REAL
     // =========================================================================
     function loadPersistedData() {
       try {
@@ -720,7 +707,7 @@
           }
         } else {
           orders = [...SAMPLE_ORDERS];
-          saveLocalOrders(false);
+          saveLocalStorageOnly(false);
         }
 
         const rawRider = localStorage.getItem(RIDER_LOC_KEY);
@@ -733,7 +720,7 @@
       }
     }
 
-    function saveLocalOrders(notifyOthers = true) {
+    function saveLocalStorageOnly(notifyOthers = true) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
         if (notifyOthers && broadcastChannel) {
@@ -745,41 +732,24 @@
       }
     }
 
-    function syncOrderToCloud(order) {
-      if (!rtdbOrdersRef || !order || !order.id) return;
-      rtdbOrdersRef.child(order.id).set(order).catch((err) => {
-        console.warn('No se pudo sincronizar pedido en Firebase:', err);
-      });
-    }
+    function saveOrders(notifyOthers = true, syncMeta = null) {
+      saveLocalStorageOnly(notifyOthers);
+      if (!rtdbOrdersRef || !syncMeta) return;
 
-    function deleteOrderFromCloud(orderId) {
-      if (!rtdbOrdersRef || !orderId) return;
-      rtdbOrdersRef.child(orderId).remove().catch((err) => {
-        console.warn('No se pudo eliminar pedido en Firebase:', err);
-      });
-    }
-
-    function replaceAllOrdersInCloud(newOrdersList) {
-      if (!rtdbOrdersRef) return;
-      const mapObj = {};
-      newOrdersList.forEach((item) => {
-        if (item && item.id) {
-          mapObj[item.id] = item;
+      try {
+        if (syncMeta.op === 'set' && syncMeta.order && syncMeta.order.id) {
+          rtdbOrdersRef.child(syncMeta.order.id).set(syncMeta.order).catch(() => {});
+        } else if (syncMeta.op === 'remove' && syncMeta.orderId) {
+          rtdbOrdersRef.child(syncMeta.orderId).remove().catch(() => {});
+        } else if (syncMeta.op === 'setAll') {
+          const mapObj = {};
+          orders.forEach((o) => {
+            if (o && o.id) mapObj[o.id] = o;
+          });
+          rtdbOrdersRef.set(Object.keys(mapObj).length > 0 ? mapObj : null).catch(() => {});
         }
-      });
-      rtdbOrdersRef.set(Object.keys(mapObj).length > 0 ? mapObj : null).catch((err) => {
-        console.warn('No se pudo actualizar la lista en Firebase:', err);
-      });
-    }
-
-    function saveOrders(notifyOthers = true, options = {}) {
-      saveLocalOrders(notifyOthers);
-      if (options.syncMode === 'single' && options.order) {
-        syncOrderToCloud(options.order);
-      } else if (options.syncMode === 'delete' && options.orderId) {
-        deleteOrderFromCloud(options.orderId);
-      } else if (options.syncMode === 'replaceAll') {
-        replaceAllOrdersInCloud(orders);
+      } catch (err) {
+        console.warn('Error sincronizando con Firebase Realtime Database:', err);
       }
     }
 
@@ -797,45 +767,36 @@
 
     function initFirebaseRealtime() {
       try {
-        if (typeof firebase === 'undefined' || !firebaseConfig.databaseURL) {
-          updateSyncBadge(false);
-          return;
-        }
-
+        if (typeof firebase === 'undefined' || !firebaseConfig.databaseURL) return;
         if (!firebase.apps.length) {
           firebase.initializeApp(firebaseConfig);
         }
-
-        rtdb = firebase.database();
-        rtdbOrdersRef = rtdb.ref(DB_ORDERS_PATH);
-        updateSyncBadge(true);
+        rtdbOrdersRef = firebase.database().ref(DB_ORDERS_PATH);
 
         rtdbOrdersRef.on('value', (snapshot) => {
           const val = snapshot.val();
-          const prevCount = orders.length;
+          const prevPending = orders.filter((o) => o.status === 'pending').length;
 
           if (val && typeof val === 'object') {
             const list = Object.values(val).filter((item) => item && item.id);
             list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
             orders = list;
-            saveLocalOrders(false);
-            if (hasReceivedRemoteSnapshot && orders.length > prevCount) {
+            saveLocalStorageOnly(false);
+
+            const newPending = orders.filter((o) => o.status === 'pending').length;
+            if (hasRemoteSnapshot && newPending > prevPending) {
               showToast('Nuevo pedido recibido en tiempo real.');
             }
-          } else if (hasReceivedRemoteSnapshot) {
+          } else if (hasRemoteSnapshot) {
             orders = [];
-            saveLocalOrders(false);
+            saveLocalStorageOnly(false);
           }
 
-          hasReceivedRemoteSnapshot = true;
+          hasRemoteSnapshot = true;
           renderAll();
-        }, (err) => {
-          console.warn('Error escuchando Firebase Realtime Database:', err);
-          updateSyncBadge(false);
         });
       } catch (err) {
         console.warn('Firebase no inicializado:', err);
-        updateSyncBadge(false);
       }
     }
 
@@ -1012,7 +973,7 @@
         };
 
         orders.unshift(newOrder);
-        saveOrders(true, { syncMode: 'single', order: newOrder });
+        saveOrders(true, { op: 'set', order: newOrder });
         renderAll();
 
         nameInput.value = '';
@@ -1040,7 +1001,7 @@
 
       target.status = 'delivered';
       target.deliveredAt = Date.now();
-      saveOrders(true, { syncMode: 'single', order: target });
+      saveOrders(true, { op: 'set', order: target });
       renderAll();
       showToast(`Pedido de ${target.customerName} marcado como entregado.`, 'success');
     }
@@ -1051,21 +1012,21 @@
 
       target.status = 'pending';
       target.deliveredAt = null;
-      saveOrders(true, { syncMode: 'single', order: target });
+      saveOrders(true, { op: 'set', order: target });
       renderAll();
       showToast(`Pedido de ${target.customerName} devuelto a ruta.`);
     }
 
     function deleteOrder(orderId) {
       orders = orders.filter((o) => o.id !== orderId);
-      saveOrders(true, { syncMode: 'delete', orderId });
+      saveOrders(true, { op: 'remove', orderId });
       renderAll();
       showToast('Pedido eliminado.');
     }
 
     function clearAllOrders() {
       orders = [];
-      saveOrders(true, { syncMode: 'replaceAll' });
+      saveOrders(true, { op: 'setAll' });
       renderAll();
       showToast('Todos los pedidos fueron limpiados.');
     }
@@ -1078,7 +1039,7 @@
         createdAt: Date.now() - (3 - idx) * 600000,
         deliveredAt: null
       }));
-      saveOrders(true, { syncMode: 'replaceAll' });
+      saveOrders(true, { op: 'setAll' });
       renderAll();
       if (currentView === 'rider') {
         fitMapToStops();
@@ -1409,4 +1370,153 @@
             <p class="text-xs sm:text-sm text-slate-600 mt-1">Cuando el negocio envíe nuevos pedidos aparecerán aquí en el mapa.</p>
           </div>
         `;
-      } else
+      } else {
+        const totalKm = orderedStops.reduce((acc, item) => acc + (item.legDistanceKm || 0), 0).toFixed(1);
+        summaryEl.textContent = `${orderedStops.length} ${orderedStops.length === 1 ? 'entrega activa' : 'entregas activas'} · Distancia estimada entre puntos: ~${totalKm} km.`;
+
+        listEl.innerHTML = orderedStops
+          .map((stop, idx) => {
+            const isFirst = idx === 0;
+            return `
+              <div class="p-4 rounded-2xl border-2 ${isFirst ? 'border-brandGreen-600 bg-emerald-50/40' : 'border-sky-100 bg-white'} space-y-3">
+                <div class="flex items-start gap-3">
+                  <div class="w-9 h-9 rounded-full ${isFirst ? 'bg-brandGreen-600' : 'bg-brandBlue-600'} text-white font-extrabold text-sm flex items-center justify-center shrink-0 shadow-sm">
+                    ${stop.routeNumber}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                      <h4 class="font-extrabold text-slate-900 text-base">${escapeHtml(stop.customerName)}</h4>
+                      ${
+                        isFirst
+                          ? `<span class="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-brandGreen-700">Siguiente</span>`
+                          : `<span class="text-xs font-semibold text-slate-500">~${stop.legDistanceKm} km</span>`
+                      }
+                    </div>
+                    <p class="text-sm text-slate-700 mt-0.5 break-words">${escapeHtml(stop.address)}</p>
+                    <p class="text-xs font-semibold text-slate-600 mt-1">📞 ${escapeHtml(stop.phone)}</p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onclick="focusAndNavigate('${stop.id}', true)"
+                    class="py-3 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 text-brandBlue-800 border border-sky-200 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <span>🧭</span>
+                    <span>Navegar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onclick="markOrderDelivered('${stop.id}')"
+                    class="py-3 px-3 rounded-xl bg-brandGreen-600 hover:bg-brandGreen-700 active:scale-[0.99] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+                  >
+                    <span>✓</span>
+                    <span>Marcar entregado</span>
+                  </button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+      }
+
+      if (deliveredOrders.length === 0) {
+        deliveredEl.innerHTML = `<p class="text-xs text-slate-500 py-2">Aún no has marcado pedidos como entregados.</p>`;
+      } else {
+        deliveredEl.innerHTML = deliveredOrders
+          .map(
+            (item) => `
+              <div class="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100">
+                <div class="min-w-0">
+                  <p class="font-bold text-slate-800 truncate">${escapeHtml(item.customerName)}</p>
+                  <p class="text-xs text-slate-500 truncate">${escapeHtml(item.address)}</p>
+                </div>
+                <button
+                  type="button"
+                  onclick="restoreOrderPending('${item.id}')"
+                  class="text-xs font-bold text-brandBlue-700 hover:underline shrink-0 cursor-pointer"
+                >
+                  Deshacer
+                </button>
+              </div>
+            `
+          )
+          .join('');
+      }
+    }
+
+    function renderAll() {
+      renderStats();
+      renderBusinessList();
+      renderRiderList();
+      renderMap();
+    }
+
+    // =========================================================================
+    // CAMBIO DE VISTA Y UTILIDADES UI
+    // =========================================================================
+    function switchView(viewName) {
+      currentView = viewName;
+
+      const businessSection = document.getElementById('panel-business');
+      const riderSection = document.getElementById('panel-rider');
+      const tabBusiness = document.getElementById('tab-business');
+      const tabRider = document.getElementById('tab-rider');
+
+      if (viewName === 'business') {
+        businessSection.classList.remove('hidden');
+        riderSection.classList.add('hidden');
+
+        tabBusiness.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition bg-brandBlue-600 text-white shadow-sm cursor-pointer';
+        tabRider.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition text-brandBlue-800 hover:bg-white cursor-pointer';
+      } else {
+        businessSection.classList.add('hidden');
+        riderSection.classList.remove('hidden');
+
+        tabRider.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition bg-brandGreen-600 text-white shadow-sm cursor-pointer';
+        tabBusiness.className = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-bold transition text-brandBlue-800 hover:bg-white cursor-pointer';
+
+        initMap();
+        setTimeout(() => {
+          if (map) {
+            map.invalidateSize();
+            fitMapToStops();
+          }
+        }, 80);
+      }
+    }
+
+    function toggleHelpSection() {
+      const content = document.getElementById('help-content');
+      const chevron = document.getElementById('help-chevron');
+      const isHidden = content.classList.contains('hidden');
+      content.classList.toggle('hidden');
+      chevron.textContent = isHidden ? '−' : '+';
+    }
+
+    function openGuideModal() {
+      document.getElementById('guide-modal').classList.remove('hidden');
+    }
+
+    function closeGuideModal() {
+      document.getElementById('guide-modal').classList.add('hidden');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = String(text || '');
+      return div.innerHTML;
+    }
+
+    // =========================================================================
+    // INICIALIZACIÓN
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      loadPersistedData();
+      setupLiveSync();
+      renderAll();
+    });
+  </script>
+</body>
+</html>
